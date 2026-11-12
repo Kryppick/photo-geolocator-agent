@@ -107,16 +107,16 @@ function priorGuess(jpeg: Buffer): { lat: number; lon: number } {
 }
 
 /** The model's answer to one photo, as text; null when the gateway refused the call (final). */
-async function ask(jpeg: Buffer): Promise<string | null> {
+async function ask(jpeg: Buffer, prompt: string = PROMPT, maxTokens: number = MAX_TOKENS): Promise<string | null> {
   const body = JSON.stringify({
     model: MODEL,
-    max_tokens: MAX_TOKENS,
+    max_tokens: maxTokens,
     messages: [
       {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: jpeg.toString('base64') } },
-          { type: 'text', text: PROMPT },
+          { type: 'text', text: prompt },
         ],
       },
     ],
@@ -186,7 +186,12 @@ async function main(): Promise<number> {
         guesses[i] = { id: p.id, lat: prior.lat, lon: prior.lon };
         continue;
       }
-      const c = coordinates(text);
+      let c = coordinates(text);
+      if (c === null) {
+        // Second chance: re-ask with a tight prompt that demands only the JSON line.
+        const retry = await ask(jpeg, 'Answer with ONLY one line of JSON: {"lat": <degrees north>, "lon": <degrees east>}. No other text.', 128);
+        if (retry !== null) c = coordinates(retry);
+      }
       if (c === null) {
         noCoords += 1;
         process.stderr.write(`agent: no coordinates in the answer for ${p.id}: ${text.slice(0, 200)}\n`);
